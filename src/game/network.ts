@@ -1,4 +1,4 @@
-import type { NetworkMessage, NetworkRole, NetworkStatus } from './types';
+import type { NetworkMessage, NetworkMessageType, NetworkRole, NetworkStatus, PartialSyncPayload, StateSyncPayload } from './types';
 
 type MessageHandler = (message: NetworkMessage) => void;
 type StatusHandler = (status: NetworkStatus, error?: string) => void;
@@ -172,6 +172,36 @@ class NetworkManager {
     this.send({
       type: 'chat',
       payload: { text },
+    });
+  }
+
+  sendFullSync(payload: StateSyncPayload): void {
+    this.send({
+      type: 'state-full-sync',
+      payload,
+      seq: payload.seq,
+    });
+  }
+
+  sendPartialSync(payload: PartialSyncPayload): void {
+    this.send({
+      type: 'state-partial-sync',
+      payload,
+      seq: payload.seq,
+    });
+  }
+
+  sendTurnStart(playerId: number): void {
+    this.send({
+      type: 'turn-start',
+      payload: { playerId, timestamp: Date.now() },
+    });
+  }
+
+  sendSyncAck(seq: number): void {
+    this.send({
+      type: 'sync-ack',
+      payload: { seq, timestamp: Date.now() },
     });
   }
 

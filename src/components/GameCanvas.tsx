@@ -36,6 +36,10 @@ export default function GameCanvas() {
   const currentPlayerId = useGameStore((s) => s.currentPlayerId);
   const players = useGameStore((s) => s.players);
 
+  const canControl = useGameStore((s) => s.canControlCurrentPlayer);
+  const isOnline = useGameStore((s) => s.isOnline);
+  const isHost = useGameStore((s) => s.isHost);
+
   const setAimAngle = useGameStore((s) => s.setAimAngle);
   const startCharge = useGameStore((s) => s.startCharge);
   const updateCharge = useGameStore((s) => s.updateCharge);
@@ -58,23 +62,26 @@ export default function GameCanvas() {
 
       const curPhase = useGameStore.getState().phase;
       const curBalls = useGameStore.getState().balls;
+      const runPhysics = isOnline() ? isHost() : true;
 
       if (curPhase === 'charging') {
-        updateCharge(dt);
-        animRef.current.cueShrink = Math.min(0.6, power * 0.5);
+        if (canControl()) {
+          updateCharge(dt);
+          animRef.current.cueShrink = Math.min(0.6, power * 0.5);
+        }
       } else {
         animRef.current.cueShrink *= 0.9;
       }
 
-      if (curPhase === 'simulating') {
+      if (curPhase === 'simulating' && runPhysics) {
         simulateStep();
       }
 
-      if (curPhase === 'resolving') {
+      if (curPhase === 'resolving' && runPhysics) {
         resolveTurn();
       }
 
-      if (curPhase === 'aiming' && !freeBall) {
+      if (curPhase === 'aiming' && !freeBall && runPhysics) {
         const curPlayer = players.find((p) => p.id === currentPlayerId);
         if (curPlayer?.isAI && time - lastAITime > 800) {
           lastAITime = time;
@@ -89,7 +96,7 @@ export default function GameCanvas() {
 
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [balls.length, freeBall, currentPlayerId, players]);
+  }, [balls.length, freeBall, currentPlayerId, players, power, isOnline, isHost, canControl]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -106,6 +113,7 @@ export default function GameCanvas() {
     };
 
     const onMove = (e: MouseEvent) => {
+      if (!canControl()) return;
       const pt = toLocal(e);
       mouseRef.current = pt;
       const cue = balls.find((b) => b.id === 0);
@@ -119,6 +127,7 @@ export default function GameCanvas() {
     };
 
     const onDown = (e: MouseEvent) => {
+      if (!canControl()) return;
       const pt = toLocal(e);
       if (freeBall) {
         placeFreeBall(pt.x, pt.y);
@@ -133,6 +142,7 @@ export default function GameCanvas() {
     };
 
     const onUp = () => {
+      if (!canControl()) return;
       if (isCharging) {
         releaseShot();
       }
@@ -146,7 +156,7 @@ export default function GameCanvas() {
       canvas.removeEventListener('mousedown', onDown);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [balls, phase, freeBall, isCharging, currentPlayerId, players]);
+  }, [balls, phase, freeBall, isCharging, currentPlayerId, players, canControl]);
 
   const draw = (ctx: CanvasRenderingContext2D, curBalls: Ball[], t: Table) => {
     ctx.fillStyle = '#0a0f0a';

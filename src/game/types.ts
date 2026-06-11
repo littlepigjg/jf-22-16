@@ -78,11 +78,85 @@ export type CoopSubMode = 'local' | 'online';
 export type NetworkRole = 'host' | 'guest' | null;
 export type NetworkStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+export type NetworkMessageType =
+  | 'shot'
+  | 'state-sync'
+  | 'state-full-sync'
+  | 'state-partial-sync'
+  | 'input-request'
+  | 'player-ready'
+  | 'aim-update'
+  | 'chat'
+  | 'sync-ack'
+  | 'turn-start';
+
 export interface NetworkMessage {
-  type: 'shot' | 'state-sync' | 'player-ready' | 'aim-update' | 'chat';
+  type: NetworkMessageType;
   payload: unknown;
   timestamp: number;
   senderId: string;
+  seq?: number;
+}
+
+export interface StateSyncPayload {
+  balls: {
+    id: number;
+    pos: { x: number; y: number };
+    vel: { x: number; y: number };
+    pocketed: boolean;
+  }[];
+  players: Player[];
+  teams: Team[];
+  currentPlayerId: number;
+  currentTeamId: number;
+  phase: GamePhase;
+  turnNumber: number;
+  foul: FoulType;
+  foulMessage: string | null;
+  groupsAssigned: boolean;
+  targetBallHint: string | null;
+  freeBall: boolean;
+  seq: number;
+  timestamp: number;
+}
+
+export interface PartialSyncPayload {
+  balls?: {
+    id: number;
+    pos: { x: number; y: number };
+    vel: { x: number; y: number };
+    pocketed: boolean;
+  }[];
+  currentPlayerId?: number;
+  currentTeamId?: number;
+  phase?: GamePhase;
+  turnNumber?: number;
+  foul?: FoulType;
+  foulMessage?: string | null;
+  groupsAssigned?: boolean;
+  targetBallHint?: string | null;
+  freeBall?: boolean;
+  shotResult?: {
+    pocketedBalls: number[];
+    scoredBallIds: number[];
+    scoreGained: number;
+    switchTurn: boolean;
+    switchTeam: boolean;
+    switchToTeammate: boolean;
+  };
+  seq: number;
+  timestamp: number;
+}
+
+export interface ShotInputPayload {
+  aimAngle: number;
+  power: number;
+  playerId: number;
+}
+
+export interface SyncAckPayload {
+  seq: number;
+  timestamp: number;
 }
 
 export interface NetworkState {

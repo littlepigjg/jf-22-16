@@ -33,6 +33,10 @@ export default function GamePage() {
 
   const netStatus = useNetworkStore((s) => s.status);
   const lastMessage = useNetworkStore((s) => s.lastMessage);
+  const latency = useNetworkStore((s) => s.latency);
+  const droppedFrames = useNetworkStore((s) => s.droppedFrames);
+  const lastSyncSeq = useNetworkStore((s) => s.lastSyncSeq);
+  const isHost = useNetworkStore((s) => s.isHost);
 
   const onlineMode = isOnlineCoop(playMode);
   const isTeamWinner = winner && 'playerIds' in winner;
@@ -139,13 +143,33 @@ export default function GamePage() {
 
             <div className="flex items-center gap-2">
               {onlineMode && (
-                <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold ${
-                  netStatus === 'connected'
-                    ? 'bg-emerald-900/30 border-emerald-500/40 text-emerald-300'
-                    : 'bg-rose-900/30 border-rose-500/40 text-rose-300'
-                }`}>
-                  {netStatus === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-                  {netStatus === 'connected' ? '已连接' : '未连接'}
+                <div className="flex items-center gap-2">
+                  <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold ${
+                    netStatus === 'connected'
+                      ? 'bg-emerald-900/30 border-emerald-500/40 text-emerald-300'
+                      : 'bg-rose-900/30 border-rose-500/40 text-rose-300'
+                  }`}>
+                    {netStatus === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+                    {netStatus === 'connected' ? '已连接' : '未连接'}
+                    <span className="text-zinc-500">|</span>
+                    {isHost ? '主机' : '客机'}
+                  </div>
+
+                  {netStatus === 'connected' && (
+                    <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-zinc-800/60 border border-zinc-700/60 text-xs font-semibold text-zinc-300">
+                      <span title="网络延迟">
+                        <span className="text-zinc-500">延迟</span> {latency}ms
+                      </span>
+                      <span className="text-zinc-600">|</span>
+                      <span title="丢帧数量">
+                        <span className="text-zinc-500">丢帧</span> {droppedFrames}
+                      </span>
+                      <span className="text-zinc-600">|</span>
+                      <span title="同步序列号">
+                        <span className="text-zinc-500">同步</span> #{lastSyncSeq}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
