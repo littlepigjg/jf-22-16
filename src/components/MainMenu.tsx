@@ -12,6 +12,7 @@ export default function MainMenu() {
   const setSelectedPlayMode = useGameStore((s) => s.setSelectedPlayMode);
   const setSelectedAIDifficulty = useGameStore((s) => s.setSelectedAIDifficulty);
   const setSelectedCoopSubMode = useGameStore((s) => s.setSelectedCoopSubMode);
+  const setShowCoopLobby = useGameStore((s) => s.setShowCoopLobby);
   const setMenuTab = useGameStore((s) => s.setMenuTab);
 
   const [mode, setMode] = useState<GameMode>('8ball');
@@ -30,8 +31,15 @@ export default function MainMenu() {
     setSelectedAIDifficulty(difficulty);
     setSelectedCoopSubMode(coopSubMode);
     saveSettings({ aiDifficulty: difficulty });
-    const isCoop = playMode === 'coop' || playMode === 'coop-online';
-    startGame(mode, playMode, difficulty, isCoop ? coopSubMode : undefined);
+
+    const isOnline = playMode === 'coop-online' && coopSubMode === 'online';
+    if (isOnline) {
+      startGame(mode, playMode, difficulty, 'online');
+      setShowCoopLobby(true);
+    } else {
+      const isCoop = playMode === 'coop' || playMode === 'coop-online';
+      startGame(mode, playMode, difficulty, isCoop ? coopSubMode : undefined);
+    }
     navigate('/game');
   };
 

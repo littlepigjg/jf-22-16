@@ -1,12 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore } from '../stores/useGameStore';
+import { useNetworkStore } from '../stores/useNetworkStore';
 import GameCanvas from '../components/GameCanvas';
 import HUD from '../components/HUD';
 import PowerBar from '../components/PowerBar';
+import CoopLobby from '../components/CoopLobby';
 import {
-  Home, RotateCcw, Save, Eye, EyeOff } from 'lucide-react';
+  Home, RotateCcw, Save, Eye, EyeOff, Wifi, WifiOff } from 'lucide-react';
 import { FoulType, Team } from '../game/types';
+import { isOnlineCoop } from '../game/coop-helpers';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -25,10 +28,17 @@ export default function GamePage() {
   const selectedAIDifficulty = useGameStore((s) => s.selectedAIDifficulty);
   const selectedCoopSubMode = useGameStore((s) => s.selectedCoopSubMode);
   const balls = useGameStore((s) => s.balls);
+  const showCoopLobby = useGameStore((s) => s.showCoopLobby);
+  const applyRemoteShot = useGameStore((s) => s.applyRemoteShot);
 
-  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+  const netStatus = useNetworkStore((s) => s.status);
+  const lastMessage = useNetworkStore((s) => s.lastMessage);
+
+  const onlineMode = isOnlineCoop(playMode);
   const isTeamWinner = winner && 'playerIds' in winner;
   const winnerName = isTeamWinner ? (winner as Team).name : (winner as { name: string })?.name;
+
+  const processedMsgRef = useRef<number>(0);
 
   useEffect(() => {
     if (balls.length === 0) {
@@ -36,13 +46,27 @@ export default function GamePage() {
     }
   }, [balls.length, navigate]);
 
+  useEffect(() => {
+    if (!lastMessage || !onlineMode) return;
+    if (lastMessage.timestamp === processedMsgRef.current) return;
+    processedMsgRef.current = lastMessage.timestamp;
+
+    if (lastMessage.type === 'shot') {
+      const payload = lastMessage.payload as { aimAngle: number; power: number; playerId: number };
+      applyRemoteShot(payload.aimAngle, payload.power, payload.playerId);
+    }
+  }, [lastMessage, onlineMode, applyRemoteShot]);
+
   const handleBackToMenu = () => {
     backToMenu();
+    if (onlineMode) {
+      useNetworkStore.getState().disconnect();
+    }
     navigate('/');
   };
 
   const handleReset = () => {
-    startGame(mode, playMode, selectedAIDifficulty, isCoopMode ? selectedCoopSubMode : undefined);
+    startGame(mode, playMode, selectedAIDifficulty, onlineMode ? selectedCoopSubMode : undefined);
   };
 
   const handleSaveReplay = () => {
@@ -54,8 +78,46 @@ export default function GamePage() {
     }
   };
 
+  const handleLobbyConnected = () => {
+    startGame(mode, playMode, selectedAIDifficulty, 'online');
+  };
+
+  const handleLobbyCancel = () => {
+    useGameStore.getState().setShowCoopLobby(false);
+  };
+
   const isGameOver = phase === 'gameover';
   const hasFoul = foul !== FoulType.NONE && foul !== undefined;
+
+  if (showCoopLobby && onlineMode) {
+    return (
+      <div className="min-h-screen w-full bg-[#0a0f0a] relative overflow-hidden">
+        <div className="absolute inset-0 opacity-30 pointer-events-none">
+          <div className="absolute top-[5%] right-[5%] w-40 h-40 rounded-full bg-amber-500/10 blur-3xl" />
+          <div className="absolute bottom-[10%] left-[8%] w-36 h-36 rounded-full bg-emerald-500/10 blur-3xl" />
+        </div>
+
+        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6">
+          <div className="w-full max-w-md">
+            <div className="flex items-center justify-between mb-6 px-2">
+              <button
+                onClick={handleBackToMenu}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-300 hover:text-amber-300 transition-all text-sm font-semibold"
+              >
+                <Home className="w-4 h-4" />
+                <span>返回菜单</span>
+              </button>
+            </div>
+
+            <CoopLobby
+              onConnected={handleLobbyConnected}
+              onCancel={handleLobbyCancel}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#0a0f0a] relative overflow-hidden">
@@ -76,6 +138,17 @@ export default function GamePage() {
             </button>
 
             <div className="flex items-center gap-2">
+              {onlineMode && (
+                <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold ${
+                  netStatus === 'connected'
+                    ? 'bg-emerald-900/30 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-900/30 border-rose-500/40 text-rose-300'
+                }`}>
+                  {netStatus === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+                  {netStatus === 'connected' ? '已连接' : '未连接'}
+                </div>
+              )}
+
               <button
                 onClick={() => setShowAimLine(!showAimLine)}
                 className={`p-2.5 rounded-xl border transition-all ${

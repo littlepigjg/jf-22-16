@@ -74,6 +74,25 @@ export interface Team {
 
 export type GameMode = '8ball' | '9ball';
 export type PlayMode = 'pvp' | 'pve' | 'coop' | 'coop-online';
+export type CoopSubMode = 'local' | 'online';
+export type NetworkRole = 'host' | 'guest' | null;
+export type NetworkStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface NetworkMessage {
+  type: 'shot' | 'state-sync' | 'player-ready' | 'aim-update' | 'chat';
+  payload: unknown;
+  timestamp: number;
+  senderId: string;
+}
+
+export interface NetworkState {
+  status: NetworkStatus;
+  role: NetworkRole;
+  peerId: string | null;
+  localId: string;
+  sessionId: string | null;
+  error: string | null;
+}
 export type GamePhase =
   | 'setup'
   | 'aiming'

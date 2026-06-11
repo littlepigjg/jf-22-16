@@ -26,6 +26,14 @@ import {
   generateReplay,
 } from '../game/replay';
 import { saveReplay } from '../utils/storage';
+import {
+  isCoopMode,
+  isOnlineCoop,
+  getOtherTeamId,
+  getNextTeammateId,
+  getFirstPlayerOfTeam,
+} from '../game/coop-helpers';
+import { useNetworkStore } from './useNetworkStore';
 
 interface UIState {
   aimAngle: number;
@@ -41,6 +49,7 @@ interface UIState {
   replayProgress: number;
   replayPlaying: boolean;
   replaySpeed: number;
+  showCoopLobby: boolean;
 }
 
 interface GameStore extends GameState, UIState {
@@ -76,15 +85,48 @@ interface GameStore extends GameState, UIState {
   setTeams: (teams: Team[]) => void;
   clearFoul: () => void;
   backToMenu: () => void;
+  setShowCoopLobby: (v: boolean) => void;
+  applyRemoteShot: (aimAngle: number, power: number, playerId: number) => void;
 }
 
 function createPlayers(
   playMode: PlayMode,
   aiDifficulty: 'easy' | 'hard',
+  isOnline: boolean = false,
 ): Player[] {
-  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+  const coopMode = isCoopMode(playMode);
 
-  if (isCoopMode) {
+  if (coopMode) {
+    if (isOnline) {
+      const isHost = useNetworkStore.getState().isHost;
+      const p1: Player = {
+        id: 0,
+        name: isHost ? '玩家 1（你）' : '玩家 1',
+        isAI: false,
+        group: null,
+        score: 0,
+        teamId: 0,
+      };
+      const p2: Player = {
+        id: 1,
+        name: isHost ? '玩家 2' : '玩家 2（你）',
+        isAI: false,
+        group: null,
+        score: 0,
+        teamId: 0,
+      };
+      const p3: Player = {
+        id: 2,
+        name: 'AI 对手',
+        isAI: true,
+        aiDifficulty,
+        group: null,
+        score: 0,
+        teamId: 1,
+      };
+      return [p1, p2, p3];
+    }
+
     const p1: Player = {
       id: 0,
       name: '玩家 1',
@@ -134,8 +176,7 @@ function createPlayers(
 }
 
 function createTeams(playMode: PlayMode): Team[] {
-  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
-  if (!isCoopMode) return [];
+  if (!isCoopMode(playMode)) return [];
 
   return [
     {
@@ -153,6 +194,12 @@ function createTeams(playMode: PlayMode): Team[] {
       score: 0,
     },
   ];
+}
+
+function getLocalPlayerId(playMode: PlayMode): number {
+  if (!isOnlineCoop(playMode)) return 0;
+  const netState = useNetworkStore.getState();
+  return netState.isHost ? 0 : 1;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -189,12 +236,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   replayProgress: 0,
   replayPlaying: false,
   replaySpeed: 1,
+  showCoopLobby: false,
 
   startGame: (mode, playMode, aiDifficulty, coopSubMode = 'local') => {
     const balls = setupBalls(mode);
-    const players = createPlayers(playMode, aiDifficulty);
+    const online = isOnlineCoop(playMode) && coopSubMode === 'online';
+    const players = createPlayers(playMode, aiDifficulty, online);
     const teams = createTeams(playMode);
-    const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
     startRecording(balls);
 
     set({
@@ -205,7 +253,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       teams,
       phase: 'aiming',
       currentPlayerId: 0,
-      currentTeamId: isCoopMode ? 0 : players[0]?.teamId ?? 0,
+      currentTeamId: isCoopMode(playMode) ? 0 : 0,
       currentShot: null,
       shotHistory: [],
       foul: FoulTypeEnum.NONE,
@@ -219,7 +267,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       aimAngle: 0,
       power: 0,
       isCharging: false,
-      selectedCoopSubMode: isCoopMode ? coopSubMode : 'local',
+      selectedCoopSubMode: isCoopMode(playMode) ? coopSubMode : 'local',
+      showCoopLobby: false,
     });
   },
 
@@ -228,11 +277,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().startGame(mode, playMode, selectedAIDifficulty, selectedCoopSubMode);
   },
 
-  setAimAngle: (angle) => set({ aimAngle: angle }),
+  setAimAngle: (angle) => {
+    set({ aimAngle: angle });
+    const s = get();
+    if (isOnlineCoop(s.playMode)) {
+      const localId = getLocalPlayerId(s.playMode);
+      if (s.currentPlayerId === localId) {
+        useNetworkStore.getState().sendAimUpdate(angle);
+      }
+    }
+  },
 
   startCharge: () => {
-    const { phase, freeBall } = get();
+    const { phase, freeBall, playMode, currentPlayerId } = get();
     if (phase !== 'aiming' || freeBall) return;
+    if (isOnlineCoop(playMode)) {
+      const localId = getLocalPlayerId(playMode);
+      if (currentPlayerId !== localId) return;
+    }
     set({ isCharging: true, power: 0.05, phase: 'charging' });
   },
 
@@ -257,12 +319,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
     applyShot(s.balls, s.aimAngle, s.power, MAX_POWER);
     recordReplayShot(shot);
+
+    if (isOnlineCoop(s.playMode)) {
+      useNetworkStore.getState().sendShot(s.aimAngle, s.power, s.currentPlayerId);
+    }
+
     set({ isCharging: false, currentShot: shot, phase: 'simulating', power: 0 });
   },
 
   placeFreeBall: (x, y) => {
-    const { balls, freeBall, phase } = get();
+    const { balls, freeBall, phase, playMode, currentPlayerId } = get();
     if (!freeBall || phase !== 'aiming') return;
+    if (isOnlineCoop(playMode)) {
+      const localId = getLocalPlayerId(playMode);
+      if (currentPlayerId !== localId) return;
+    }
     const newCue = placeCueBall(x, y);
     const updated = balls.map((b) => (b.id === 0 ? newCue : b));
     set({ balls: updated, freeBall: false });
@@ -303,7 +374,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (s.phase !== 'resolving' || !s.currentShot) return;
 
     const currentPlayer = s.players.find((p) => p.id === s.currentPlayerId)!;
-    const isCoopMode = s.playMode === 'coop' || s.playMode === 'coop-online';
+    const coopMode = isCoopMode(s.playMode);
     const foulResult = checkFoul(s.mode, s.balls, s.currentShot, currentPlayer, s.groupsAssigned, s.teams, s.playMode);
     s.currentShot.foul = foulResult.foul;
 
@@ -328,20 +399,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let nextTeamId = s.currentTeamId;
     let freeBall = false;
 
-    if (isCoopMode) {
+    if (coopMode) {
       if (resolve.switchTeam) {
-        nextTeamId = updatedTeams.find((t) => t.id !== s.currentTeamId)!.id;
-        const nextTeamPlayers = updatedPlayers.filter((p) => p.teamId === nextTeamId);
-        nextPlayerId = nextTeamPlayers[0]?.id ?? nextPlayerId;
+        nextTeamId = getOtherTeamId(s.currentTeamId, updatedTeams);
+        nextPlayerId = getFirstPlayerOfTeam(nextTeamId, updatedPlayers);
       } else if (resolve.switchToTeammate) {
-        const currentTeamPlayers = updatedPlayers.filter((p) => p.teamId === s.currentTeamId && !p.isAI);
-        const currentIndex = currentTeamPlayers.findIndex((p) => p.id === s.currentPlayerId);
-        const nextIndex = (currentIndex + 1) % currentTeamPlayers.length;
-        nextPlayerId = currentTeamPlayers[nextIndex]?.id ?? s.currentPlayerId;
+        const teammateId = getNextTeammateId(s.currentTeamId, s.currentPlayerId, updatedPlayers);
+        if (teammateId !== null) {
+          nextPlayerId = teammateId;
+        } else {
+          nextPlayerId = s.currentPlayerId;
+        }
       } else if (resolve.switchTurn) {
-        nextTeamId = updatedTeams.find((t) => t.id !== s.currentTeamId)!.id;
-        const nextTeamPlayers = updatedPlayers.filter((p) => p.teamId === nextTeamId);
-        nextPlayerId = nextTeamPlayers[0]?.id ?? nextPlayerId;
+        nextTeamId = getOtherTeamId(s.currentTeamId, updatedTeams);
+        nextPlayerId = getFirstPlayerOfTeam(nextTeamId, updatedPlayers);
       }
     } else {
       if (resolve.switchTurn) {
@@ -361,7 +432,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (resolve.gameOver) {
       stopRecording();
       let winner: Player | Team | null = null;
-      if (isCoopMode && resolve.winnerTeamId !== undefined) {
+      if (coopMode && resolve.winnerTeamId !== undefined) {
         winner = updatedTeams.find((t) => t.id === resolve.winnerTeamId) || null;
       } else if (resolve.winnerId !== undefined) {
         winner = updatedPlayers.find((p) => p.id === resolve.winnerId) || null;
@@ -444,6 +515,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPhase: (p) => set({ phase: p }),
   setBalls: (balls) => set({ balls }),
   setTeams: (teams) => set({ teams }),
+  setShowCoopLobby: (v) => set({ showCoopLobby: v }),
+
+  applyRemoteShot: (aimAngle, power, playerId) => {
+    const s = get();
+    if (s.currentPlayerId !== playerId) return;
+
+    const shot: Shot = {
+      aimAngle,
+      power,
+      playerId,
+      timestamp: Date.now(),
+      hits: [],
+      pocketedBalls: [],
+      foul: FoulTypeEnum.NONE,
+    };
+    applyShot(s.balls, aimAngle, power, MAX_POWER);
+    recordReplayShot(shot);
+    set({ isCharging: false, currentShot: shot, phase: 'simulating', power: 0 });
+  },
 
   saveReplayToStorage: () => {
     const s = get();
@@ -465,6 +555,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       replayRecording: false,
       menuTab: 'home',
       replayId: null,
+      showCoopLobby: false,
     });
   },
 }));

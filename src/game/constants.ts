@@ -77,6 +77,19 @@ export const COOP_MESSAGES = {
   LOCAL_COOP: '本地合作',
   ONLINE_COOP: '在线协作',
   TURN_TEAMMATE: '轮到队友击球',
+  ONLINE_LOBBY_TITLE: '在线协作大厅',
+  CONNECTION_WAITING: '等待队友连接...',
+  CONNECTION_SUCCESS: '连接成功！',
+};
+
+export const NETWORK_CONSTANTS = {
+  ICE_SERVERS: [
+    'stun:stun.l.google.com:19302',
+    'stun:stun1.l.google.com:19302',
+  ],
+  DATA_CHANNEL_LABEL: 'billiards-coop',
+  ICE_GATHERING_TIMEOUT_MS: 5000,
+  RECONNECT_MAX_ATTEMPTS: 3,
 };
 
 export function createBall(id: number, x: number, y: number): Ball {
