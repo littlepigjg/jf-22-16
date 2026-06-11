@@ -237,7 +237,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
   networkSync.onShotReceived((aimAngle, power, playerId) => {
     const s = get();
-    if (!networkSync.isHost() || s.currentPlayerId !== playerId) return;
+    if (!networkSync.isHost()) return;
     if (s.phase !== 'aiming') return;
     get().applyRemoteShot(aimAngle, power, playerId);
   });
@@ -648,8 +648,11 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     applyRemoteShot: (aimAngle, power, playerId) => {
       const s = get();
-      if (s.currentPlayerId !== playerId) return;
       if (!networkSync.shouldRunPhysics()) return;
+      if (s.phase !== 'aiming') return;
+
+      const player = s.players.find((p) => p.id === playerId);
+      if (!player) return;
 
       const shot: Shot = {
         aimAngle,
@@ -662,7 +665,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
       applyShot(s.balls, aimAngle, power, MAX_POWER);
       recordReplayShot(shot);
-      set({ isCharging: false, currentShot: shot, phase: 'simulating', power: 0 });
+
+      const currentTeamId = player.teamId !== undefined ? player.teamId : s.currentTeamId;
+      set({
+        isCharging: false,
+        currentShot: shot,
+        phase: 'simulating',
+        power: 0,
+        currentPlayerId: playerId,
+        currentTeamId,
+      });
     },
 
     applyFullStateSync: (payload) => {
