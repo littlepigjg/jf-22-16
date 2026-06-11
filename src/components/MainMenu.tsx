@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { CircleDot, Trophy, Users, Bot, ChevronRight, Play, BookOpenCheck } from 'lucide-react';
+import { CircleDot, Trophy, Users, Bot, ChevronRight, Play, BookOpenCheck, UserPlus, Globe2 } from 'lucide-react';
 import { useGameStore } from '../stores/useGameStore';
 import type { GameMode, PlayMode } from '../game/types';
 import { loadSettings, saveSettings } from '../utils/storage';
@@ -11,11 +11,13 @@ export default function MainMenu() {
   const setSelectedGameMode = useGameStore((s) => s.setSelectedGameMode);
   const setSelectedPlayMode = useGameStore((s) => s.setSelectedPlayMode);
   const setSelectedAIDifficulty = useGameStore((s) => s.setSelectedAIDifficulty);
+  const setSelectedCoopSubMode = useGameStore((s) => s.setSelectedCoopSubMode);
   const setMenuTab = useGameStore((s) => s.setMenuTab);
 
   const [mode, setMode] = useState<GameMode>('8ball');
   const [playMode, setPlayMode] = useState<PlayMode>('pve');
   const [difficulty, setDifficulty] = useState<'easy' | 'hard'>('easy');
+  const [coopSubMode, setCoopSubMode] = useState<'local' | 'online'>('local');
 
   useEffect(() => {
     const s = loadSettings();
@@ -26,8 +28,10 @@ export default function MainMenu() {
     setSelectedGameMode(mode);
     setSelectedPlayMode(playMode);
     setSelectedAIDifficulty(difficulty);
+    setSelectedCoopSubMode(coopSubMode);
     saveSettings({ aiDifficulty: difficulty });
-    startGame(mode, playMode, difficulty);
+    const isCoop = playMode === 'coop' || playMode === 'coop-online';
+    startGame(mode, playMode, difficulty, isCoop ? coopSubMode : undefined);
     navigate('/game');
   };
 
@@ -106,9 +110,23 @@ export default function MainMenu() {
                 desc="轮流击球"
                 icon={<Users className="w-5 h-5" />}
               />
+              <ModeCard
+                active={playMode === 'coop'}
+                onClick={() => setPlayMode('coop')}
+                title="双人合作"
+                desc="组队对抗AI"
+                icon={<UserPlus className="w-5 h-5" />}
+              />
+              <ModeCard
+                active={playMode === 'coop-online'}
+                onClick={() => setPlayMode('coop-online')}
+                title="在线协作"
+                desc="远程组队"
+                icon={<Globe2 className="w-5 h-5" />}
+              />
             </div>
 
-            {playMode === 'pve' && (
+            {(playMode === 'pve' || playMode === 'coop' || playMode === 'coop-online') && (
               <>
                 <div className="text-xs uppercase tracking-widest text-zinc-500 mb-4 font-bold">AI 难度</div>
                 <div className="grid grid-cols-2 gap-3 mb-2">
@@ -123,6 +141,26 @@ export default function MainMenu() {
                     onClick={() => setDifficulty('hard')}
                     title="困难"
                     desc="会做安全球"
+                  />
+                </div>
+              </>
+            )}
+
+            {(playMode === 'coop' || playMode === 'coop-online') && (
+              <>
+                <div className="text-xs uppercase tracking-widest text-zinc-500 mb-4 font-bold mt-4">合作方式</div>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <DifficultyCard
+                    active={coopSubMode === 'local'}
+                    onClick={() => setCoopSubMode('local')}
+                    title="本地轮流"
+                    desc="共用一台设备"
+                  />
+                  <DifficultyCard
+                    active={coopSubMode === 'online'}
+                    onClick={() => setCoopSubMode('online')}
+                    title="在线协作"
+                    desc="网络连接"
                   />
                 </div>
               </>

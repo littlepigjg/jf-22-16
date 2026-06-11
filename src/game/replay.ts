@@ -1,4 +1,4 @@
-import type { Ball, GameMode, GamePhase, Player, ReplayFile, ReplayFrame, Shot } from './types';
+import type { Ball, GameMode, GamePhase, Player, ReplayFile, ReplayFrame, Shot, Team } from './types';
 
 let frameBuffer: ReplayFrame[] = [];
 let shotBuffer: Shot[] = [];
@@ -59,7 +59,7 @@ export function recordShot(shot: Shot): void {
 export function generateReplay(
   mode: GameMode,
   players: Player[],
-  winner: Player | null,
+  winner: Player | Team | null,
 ): ReplayFile | null {
   if (!initialBallsSnapshot) return null;
 

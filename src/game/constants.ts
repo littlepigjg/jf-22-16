@@ -70,6 +70,15 @@ export const FOUL_MESSAGES: Record<string, string> = {
   EIGHT_BALL_POCKETED_EARLY: '犯规：8号球被提前打入！',
 };
 
+export const COOP_MESSAGES = {
+  MODE_LABEL: '合作模式',
+  TEAM_1_NAME: '玩家队伍',
+  TEAM_2_NAME: 'AI 对手',
+  LOCAL_COOP: '本地合作',
+  ONLINE_COOP: '在线协作',
+  TURN_TEAMMATE: '轮到队友击球',
+};
+
 export function createBall(id: number, x: number, y: number): Ball {
   const colorInfo = BALL_COLORS[id] || BALL_COLORS[1];
   return {

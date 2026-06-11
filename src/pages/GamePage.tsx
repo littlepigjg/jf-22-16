@@ -6,7 +6,7 @@ import HUD from '../components/HUD';
 import PowerBar from '../components/PowerBar';
 import {
   Home, RotateCcw, Save, Eye, EyeOff } from 'lucide-react';
-import { FoulType } from '../game/types';
+import { FoulType, Team } from '../game/types';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -17,14 +17,18 @@ export default function GamePage() {
   const foul = useGameStore((s) => s.foul);
   const replayRecording = useGameStore((s) => s.replayRecording);
   const backToMenu = useGameStore((s) => s.backToMenu);
-  const resetGame = useGameStore((s) => s.resetGame);
   const saveReplayToStorage = useGameStore((s) => s.saveReplayToStorage);
   const setShowAimLine = useGameStore((s) => s.setShowAimLine);
   const startGame = useGameStore((s) => s.startGame);
   const mode = useGameStore((s) => s.mode);
   const playMode = useGameStore((s) => s.playMode);
   const selectedAIDifficulty = useGameStore((s) => s.selectedAIDifficulty);
+  const selectedCoopSubMode = useGameStore((s) => s.selectedCoopSubMode);
   const balls = useGameStore((s) => s.balls);
+
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+  const isTeamWinner = winner && 'playerIds' in winner;
+  const winnerName = isTeamWinner ? (winner as Team).name : (winner as { name: string })?.name;
 
   useEffect(() => {
     if (balls.length === 0) {
@@ -38,7 +42,7 @@ export default function GamePage() {
   };
 
   const handleReset = () => {
-    startGame(mode, playMode, selectedAIDifficulty);
+    startGame(mode, playMode, selectedAIDifficulty, isCoopMode ? selectedCoopSubMode : undefined);
   };
 
   const handleSaveReplay = () => {
@@ -114,9 +118,9 @@ export default function GamePage() {
 
               {isGameOver && winner && (
                 <div className="mt-4 rounded-2xl bg-gradient-to-br from-amber-900/50 via-amber-950/70 to-zinc-900/50 backdrop-blur-xl border border-amber-600/40 p-6 shadow-2xl text-center">
-                  <div className="text-5xl mb-3">🏆</div>
+                  <div className="text-5xl mb-3">{isTeamWinner ? '👥🏆' : '🏆'}</div>
                   <div className="text-3xl font-serif font-black bg-gradient-to-b from-amber-300 to-amber-500 bg-clip-text text-transparent mb-2">
-                    {winner.name} 获胜！
+                    {winnerName} 获胜！
                   </div>
                   <div className="text-zinc-400 text-sm mb-5">
                     共进行 {useGameStore.getState().turnNumber} 回合

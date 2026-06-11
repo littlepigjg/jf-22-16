@@ -1,44 +1,83 @@
 import { useGameStore } from '../stores/useGameStore';
 import { getLegalFirstBalls } from '../game/rules';
-import { BALL_COLORS } from '../game/constants';
-import type { GameMode } from '../game/types';
+import { BALL_COLORS, COOP_MESSAGES } from '../game/constants';
+import type { GameMode, PlayMode, Team } from '../game/types';
 
 export default function HUD() {
   const currentPlayerId = useGameStore((s) => s.currentPlayerId);
+  const currentTeamId = useGameStore((s) => s.currentTeamId);
   const players = useGameStore((s) => s.players);
+  const teams = useGameStore((s) => s.teams);
   const balls = useGameStore((s) => s.balls);
   const mode = useGameStore((s) => s.mode);
+  const playMode = useGameStore((s) => s.playMode);
   const groupsAssigned = useGameStore((s) => s.groupsAssigned);
   const targetBallHint = useGameStore((s) => s.targetBallHint);
   const turnNumber = useGameStore((s) => s.turnNumber);
   const phase = useGameStore((s) => s.phase);
 
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
   const currentPlayer = players.find((p) => p.id === currentPlayerId);
 
   const legalIds = currentPlayer
-    ? getLegalFirstBalls(mode, balls, currentPlayer, groupsAssigned)
+    ? getLegalFirstBalls(mode, balls, currentPlayer, groupsAssigned, teams, playMode)
     : [];
-
-  const player1 = players[0];
-  const player2 = players[1];
 
   return (
     <div className="w-full max-w-[880px] mx-auto space-y-3">
-      <div className="grid grid-cols-2 gap-4">
-        <PlayerCard
-          player={player1}
-          active={currentPlayerId === 0}
-          mode={mode}
-          balls={balls}
-        />
-        <PlayerCard
-          player={player2}
-          active={currentPlayerId === 1}
-          mode={mode}
-          balls={balls}
-          reverse
-        />
-      </div>
+      {isCoopMode && (
+        <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-gradient-to-r from-amber-900/40 via-amber-800/50 to-amber-900/40 border border-amber-500/40">
+          <span className="text-xs uppercase tracking-widest text-amber-300 font-bold">
+            🏆 {COOP_MESSAGES.MODE_LABEL}
+          </span>
+          <span className="text-zinc-400 text-xs">·</span>
+          <span className="text-amber-200 text-sm">
+            当前操作：<span className="font-bold text-amber-100">{currentPlayer?.name}</span>
+          </span>
+        </div>
+      )}
+
+      {isCoopMode ? (
+        <div className="grid grid-cols-2 gap-4">
+          <TeamCard
+            team={teams[0]}
+            players={players.filter((p) => p.teamId === 0)}
+            active={currentTeamId === 0}
+            currentPlayerId={currentPlayerId}
+            mode={mode}
+            balls={balls}
+          />
+          <TeamCard
+            team={teams[1]}
+            players={players.filter((p) => p.teamId === 1)}
+            active={currentTeamId === 1}
+            currentPlayerId={currentPlayerId}
+            mode={mode}
+            balls={balls}
+            reverse
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          <PlayerCard
+            player={players[0]}
+            active={currentPlayerId === 0}
+            mode={mode}
+            balls={balls}
+            teams={teams}
+            playMode={playMode}
+          />
+          <PlayerCard
+            player={players[1]}
+            active={currentPlayerId === 1}
+            mode={mode}
+            balls={balls}
+            teams={teams}
+            playMode={playMode}
+            reverse
+          />
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl bg-black/40 backdrop-blur-md border border-amber-700/30">
         <div className="flex items-center gap-3">
@@ -83,25 +122,28 @@ function PlayerCard({
   active,
   mode,
   balls,
+  teams = [],
+  playMode = 'pvp',
   reverse = false,
 }: {
-  player?: { id: number; name: string; isAI: boolean; group?: 'solid' | 'stripe' | null; score: number; aiDifficulty?: 'easy' | 'hard' };
+  player?: { id: number; name: string; isAI: boolean; group?: 'solid' | 'stripe' | null; score: number; aiDifficulty?: 'easy' | 'hard'; teamId?: number };
   active: boolean;
   mode: GameMode;
   balls: { id: number; pocketed: boolean; stripe: boolean }[];
+  teams?: Team[];
+  playMode?: PlayMode;
   reverse?: boolean;
 }) {
   if (!player) return null;
 
-  const group = player.group;
-  const remaining = balls.filter(
-    (b) => !b.pocketed && b.id !== 0 && b.id !== 8 && (
-      mode === '9ball' ? true :
-      group === 'solid' ? !b.stripe :
-      group === 'stripe' ? b.stripe :
-      true
-    ),
-  ).length;
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+  let group: 'solid' | 'stripe' | null | undefined;
+  if (isCoopMode && player.teamId !== undefined && teams.length > 0) {
+    const team = teams.find((t) => t.id === player.teamId);
+    group = team?.group;
+  } else {
+    group = player.group;
+  }
 
   const pocketed = balls.filter(
     (b) => b.pocketed && b.id !== 0 && b.id !== 8 && (
@@ -218,4 +260,103 @@ function phaseLabel(p: string): string {
     case 'gameover': return '比赛结束';
     default: return '准备中';
   }
+}
+
+function TeamCard({
+  team,
+  players,
+  active,
+  currentPlayerId,
+  mode,
+  balls,
+  reverse = false,
+}: {
+  team?: Team;
+  players: { id: number; name: string; isAI: boolean; group?: 'solid' | 'stripe' | null; score: number; aiDifficulty?: 'easy' | 'hard'; teamId?: number }[];
+  active: boolean;
+  currentPlayerId: number;
+  mode: GameMode;
+  balls: { id: number; pocketed: boolean; stripe: boolean }[];
+  reverse?: boolean;
+}) {
+  if (!team || players.length === 0) return null;
+
+  const group = team.group;
+
+  const pocketed = balls.filter(
+    (b) => b.pocketed && b.id !== 0 && b.id !== 8 && (
+      mode === '9ball' ? true :
+      group === 'solid' ? !b.stripe :
+      group === 'stripe' ? b.stripe :
+      false
+    ),
+  );
+
+  const isAITeam = players.every((p) => p.isAI);
+
+  return (
+    <div
+      className={`relative p-4 rounded-xl border transition-all duration-300 ${
+        active
+          ? 'bg-gradient-to-br from-amber-900/40 to-amber-950/60 border-amber-500/60 shadow-[0_0_30px_rgba(212,168,75,0.15)]'
+          : 'bg-zinc-900/50 border-zinc-700/40 opacity-80'
+      }`}
+    >
+      {active && (
+        <div className={`absolute top-2 ${reverse ? 'left-2' : 'right-2'} w-2 h-2 rounded-full bg-emerald-400 animate-ping`} />
+      )}
+      <div className="flex items-center justify-between mb-3">
+        <div className={`flex items-center gap-2 ${reverse ? 'flex-row-reverse' : ''}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+            isAITeam
+              ? 'bg-gradient-to-br from-rose-600 to-rose-800 text-rose-100'
+              : 'bg-gradient-to-br from-emerald-600 to-emerald-800 text-emerald-100'
+          }`}>
+            {isAITeam ? 'AI' : '👥'}
+          </div>
+          <div className={reverse ? 'text-right' : ''}>
+            <div className="font-bold text-zinc-100">{team.name}</div>
+            <div className="flex gap-1 mt-1">
+              {players.map((p) => (
+                <span
+                  key={p.id}
+                  className={`text-xs px-2 py-0.5 rounded ${
+                    currentPlayerId === p.id
+                      ? 'bg-amber-500/30 text-amber-200 font-bold'
+                      : 'bg-zinc-700/50 text-zinc-400'
+                  }`}
+                >
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-amber-400 font-serif">
+            {mode === '8ball' ? (group ? (pocketed.length > 0 ? pocketed.length : 0) : '-') : team.score}
+          </div>
+          {mode === '8ball' && group && (
+            <div className="text-xs text-zinc-400">{group === 'solid' ? '全色球' : '半色球'}</div>
+          )}
+        </div>
+      </div>
+
+      {mode === '8ball' && group && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {Array.from({ length: 7 }).map((_, i) => {
+            const ballId = group === 'solid' ? i + 1 : i + 9;
+            const isPocketed = balls.find((b) => b.id === ballId)?.pocketed;
+            return (
+              <MiniBall
+                key={ballId}
+                id={ballId}
+                pocketed={!!isPocketed}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

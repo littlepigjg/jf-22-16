@@ -1,4 +1,4 @@
-import type { Ball, FoulType, GameMode, Player, Shot } from './types';
+import type { Ball, FoulType, GameMode, Player, PlayMode, Shot, Team } from './types';
 import { FoulType as FoulTypeEnum } from './types';
 import { FOUL_MESSAGES } from './constants';
 import {
@@ -12,6 +12,8 @@ export function getLegalFirstBalls(
   balls: Ball[],
   currentPlayer: Player,
   groupsAssigned: boolean,
+  teams: Team[] = [],
+  playMode: PlayMode = 'pvp',
 ): number[] {
   const activeBalls = balls.filter((b) => !b.pocketed && b.id !== 0);
 
@@ -25,7 +27,16 @@ export function getLegalFirstBalls(
     if (!groupsAssigned) {
       return activeBalls.filter((b) => b.id !== 8).map((b) => b.id);
     }
-    const group = currentPlayer.group;
+
+    let group: 'solid' | 'stripe' | null | undefined;
+    const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+    if (isCoopMode && currentPlayer.teamId !== undefined && teams.length > 0) {
+      const currentTeam = teams.find((t) => t.id === currentPlayer.teamId);
+      group = currentTeam?.group;
+    } else {
+      group = currentPlayer.group;
+    }
+
     if (group === 'solid') {
       const solids = activeBalls.filter((b) => !b.stripe && b.id !== 8);
       if (solids.length > 0) return solids.map((b) => b.id);
@@ -46,8 +57,10 @@ export function checkFoul(
   shot: Shot,
   currentPlayer: Player,
   groupsAssigned: boolean,
+  teams: Team[] = [],
+  playMode: PlayMode = 'pvp',
 ): { foul: FoulType; message: string | null } {
-  const legalFirstBalls = getLegalFirstBalls(mode, balls, currentPlayer, groupsAssigned);
+  const legalFirstBalls = getLegalFirstBalls(mode, balls, currentPlayer, groupsAssigned, teams, playMode);
 
   const cueBallPocketed = shot.pocketedBalls.includes(0);
   if (cueBallPocketed) {
@@ -65,7 +78,14 @@ export function checkFoul(
   }
 
   if (mode === '8ball') {
-    const group = currentPlayer.group;
+    const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+    let group: 'solid' | 'stripe' | null | undefined;
+    if (isCoopMode && currentPlayer.teamId !== undefined && teams.length > 0) {
+      const currentTeam = teams.find((t) => t.id === currentPlayer.teamId);
+      group = currentTeam?.group;
+    } else {
+      group = currentPlayer.group;
+    }
     const eightInThisShot = shot.pocketedBalls.includes(8);
     if (groupsAssigned && group) {
       const groupBallsRemaining = balls.filter(
@@ -83,10 +103,14 @@ export function checkFoul(
 
 export interface ResolveResult {
   switchTurn: boolean;
+  switchTeam: boolean;
+  switchToTeammate: boolean;
   gameOver: boolean;
   winnerId?: number;
+  winnerTeamId?: number;
   hintMessage: string | null;
   updatedPlayers: Player[];
+  updatedTeams?: Team[];
   groupsAssigned: boolean;
   scoredBallIds: number[];
   scoreGained: number;
@@ -100,10 +124,16 @@ export function resolveShot(
   currentPlayerId: number,
   foul: FoulType,
   groupsAssigned: boolean,
+  playMode: PlayMode = 'pvp',
+  teams: Team[] = [],
 ): ResolveResult {
   const hasFoul = foul !== FoulTypeEnum.NONE;
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
   let switchTurn = true;
+  let switchTeam = false;
+  let switchToTeammate = false;
   let currentPlayers = clonePlayers(players);
+  let currentTeams = teams.length > 0 ? [...teams] : undefined;
 
   const pocketedNonCue = shot.pocketedBalls.filter((id) => id !== 0);
   const currentPlayer = currentPlayers.find((p) => p.id === currentPlayerId)!;
@@ -112,8 +142,11 @@ export function resolveShot(
   let hintMessage: string | null = null;
 
   if (mode === '8ball' && !groupsAssigned && pocketedNonCue.length > 0 && !hasFoul) {
-    const assignResult = assignGroupsOnFirstPocket(balls, pocketedNonCue, currentPlayers, currentPlayerId);
+    const assignResult = assignGroupsOnFirstPocket(balls, pocketedNonCue, currentPlayers, currentPlayerId, playMode, currentTeams || []);
     currentPlayers = assignResult.updatedPlayers;
+    if (assignResult.updatedTeams) {
+      currentTeams = assignResult.updatedTeams;
+    }
     groupsNowAssigned = assignResult.groupsAssigned;
     if (assignResult.hintMessage) {
       hintMessage = assignResult.hintMessage;
@@ -122,8 +155,15 @@ export function resolveShot(
 
   const updatedCurrentPlayer = currentPlayers.find((p) => p.id === currentPlayerId)!;
 
+  let group: 'solid' | 'stripe' | null | undefined;
+  if (isCoopMode && updatedCurrentPlayer.teamId !== undefined && currentTeams && currentTeams.length > 0) {
+    const currentTeam = currentTeams.find((t) => t.id === updatedCurrentPlayer.teamId);
+    group = currentTeam?.group;
+  } else {
+    group = updatedCurrentPlayer.group;
+  }
+
   if (mode === '8ball') {
-    const group = updatedCurrentPlayer.group;
     if (group && !hasFoul) {
       const ownGroupPocketed = pocketedNonCue.filter((id) => {
         const ball = balls.find((b) => b.id === id);
@@ -132,8 +172,14 @@ export function resolveShot(
       });
 
       if (ownGroupPocketed.length > 0) {
-        switchTurn = false;
-        hintMessage = `好球！打进 ${ownGroupPocketed.length} 颗，继续击打`;
+        if (isCoopMode) {
+          switchTurn = false;
+          switchToTeammate = true;
+          hintMessage = `好球！打进 ${ownGroupPocketed.length} 颗，轮到队友`;
+        } else {
+          switchTurn = false;
+          hintMessage = `好球！打进 ${ownGroupPocketed.length} 颗，继续击打`;
+        }
       }
     }
 
@@ -144,26 +190,70 @@ export function resolveShot(
       ).length;
 
       if (groupBallsRemaining === 0 && !hasFoul) {
-        const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul);
+        const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul, playMode, currentTeams || []);
+        if (scoreResult.updatedTeams) {
+          currentTeams = scoreResult.updatedTeams;
+        }
+        if (isCoopMode && updatedCurrentPlayer.teamId !== undefined) {
+          const currentTeam = currentTeams?.find((t) => t.id === updatedCurrentPlayer.teamId);
+          return {
+            switchTurn: false,
+            switchTeam: false,
+            switchToTeammate: false,
+            gameOver: true,
+            winnerId: currentPlayerId,
+            winnerTeamId: updatedCurrentPlayer.teamId,
+            hintMessage: `${currentTeam?.name || '队伍'} 获胜！`,
+            updatedPlayers: scoreResult.updatedPlayers,
+            updatedTeams: currentTeams,
+            groupsAssigned: groupsNowAssigned,
+            scoredBallIds: scoreResult.scoredBallIds,
+            scoreGained: scoreResult.scoreGained,
+          };
+        }
         return {
           switchTurn: false,
+          switchTeam: false,
+          switchToTeammate: false,
           gameOver: true,
           winnerId: currentPlayerId,
           hintMessage: `${currentPlayer.name} 获胜！`,
           updatedPlayers: scoreResult.updatedPlayers,
+          updatedTeams: currentTeams,
           groupsAssigned: groupsNowAssigned,
           scoredBallIds: scoreResult.scoredBallIds,
           scoreGained: scoreResult.scoreGained,
         };
       }
       if (hasFoul || groupBallsRemaining > 0) {
+        if (isCoopMode) {
+          const otherTeamId = currentTeams?.find((t) => t.id !== updatedCurrentPlayer.teamId)!.id;
+          const otherTeam = currentTeams?.find((t) => t.id === otherTeamId);
+          return {
+            switchTurn: true,
+            switchTeam: true,
+            switchToTeammate: false,
+            gameOver: true,
+            winnerId: undefined,
+            winnerTeamId: otherTeamId,
+            hintMessage: `${otherTeam?.name || '对方队伍'} 获胜！`,
+            updatedPlayers: currentPlayers,
+            updatedTeams: currentTeams,
+            groupsAssigned: groupsNowAssigned,
+            scoredBallIds: [],
+            scoreGained: 0,
+          };
+        }
         const otherPlayerId = currentPlayers.find((p) => p.id !== currentPlayerId)!.id;
         return {
           switchTurn: true,
+          switchTeam: false,
+          switchToTeammate: false,
           gameOver: true,
           winnerId: otherPlayerId,
           hintMessage: `${currentPlayers.find((p) => p.id !== currentPlayerId)!.name} 获胜！`,
           updatedPlayers: currentPlayers,
+          updatedTeams: currentTeams,
           groupsAssigned: groupsNowAssigned,
           scoredBallIds: [],
           scoreGained: 0,
@@ -174,13 +264,19 @@ export function resolveShot(
 
   if (mode === '9ball') {
     if (pocketedNonCue.includes(9) && !hasFoul) {
-      const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul);
+      const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul, playMode, currentTeams || []);
+      if (scoreResult.updatedTeams) {
+        currentTeams = scoreResult.updatedTeams;
+      }
       return {
         switchTurn: false,
+        switchTeam: false,
+        switchToTeammate: false,
         gameOver: true,
         winnerId: currentPlayerId,
         hintMessage: `${currentPlayer.name} 获胜！`,
         updatedPlayers: scoreResult.updatedPlayers,
+        updatedTeams: currentTeams,
         groupsAssigned: groupsNowAssigned,
         scoredBallIds: scoreResult.scoredBallIds,
         scoreGained: scoreResult.scoreGained,
@@ -188,18 +284,39 @@ export function resolveShot(
     }
 
     if (pocketedNonCue.length > 0 && !hasFoul) {
-      switchTurn = false;
-      hintMessage = `好球！打进 ${pocketedNonCue.length} 颗，继续击打`;
+      if (isCoopMode) {
+        switchTurn = false;
+        switchToTeammate = true;
+        hintMessage = `好球！打进 ${pocketedNonCue.length} 颗，轮到队友`;
+      } else {
+        switchTurn = false;
+        hintMessage = `好球！打进 ${pocketedNonCue.length} 颗，继续击打`;
+      }
     }
   }
 
-  const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul);
+  if (hasFoul && isCoopMode) {
+    switchTurn = true;
+    switchTeam = true;
+    switchToTeammate = false;
+    if (!hintMessage) {
+      hintMessage = '犯规！换对方队伍击球';
+    }
+  }
+
+  const scoreResult = calculateScoreAndUpdatePlayers(mode, balls, shot, currentPlayers, currentPlayerId, hasFoul, playMode, currentTeams || []);
+  if (scoreResult.updatedTeams) {
+    currentTeams = scoreResult.updatedTeams;
+  }
 
   return {
     switchTurn,
+    switchTeam,
+    switchToTeammate,
     gameOver: false,
     hintMessage,
     updatedPlayers: scoreResult.updatedPlayers,
+    updatedTeams: currentTeams,
     groupsAssigned: groupsNowAssigned,
     scoredBallIds: scoreResult.scoredBallIds,
     scoreGained: scoreResult.scoreGained,

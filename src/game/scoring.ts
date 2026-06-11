@@ -1,9 +1,10 @@
-import type { Ball, GameMode, Player, Shot } from './types';
+import type { Ball, GameMode, Player, PlayMode, Shot, Team } from './types';
 
 export interface ScoreResult {
   scoredBallIds: number[];
   scoreGained: number;
   updatedPlayers: Player[];
+  updatedTeams?: Team[];
 }
 
 export function calculateScoreAndUpdatePlayers(
@@ -13,10 +14,20 @@ export function calculateScoreAndUpdatePlayers(
   players: Player[],
   currentPlayerId: number,
   foul: boolean,
+  playMode: PlayMode = 'pvp',
+  teams: Team[] = [],
 ): ScoreResult {
   const pocketedNonCue = shot.pocketedBalls.filter((id) => id !== 0);
   const currentPlayer = players.find((p) => p.id === currentPlayerId)!;
-  const group = currentPlayer.group;
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
+
+  let group: 'solid' | 'stripe' | null | undefined;
+  if (isCoopMode && currentPlayer.teamId !== undefined && teams.length > 0) {
+    const currentTeam = teams.find((t) => t.id === currentPlayer.teamId);
+    group = currentTeam?.group;
+  } else {
+    group = currentPlayer.group;
+  }
 
   const scoredBallIds: number[] = [];
 
@@ -27,6 +38,17 @@ export function calculateScoreAndUpdatePlayers(
   }
 
   const scoreGained = foul ? 0 : scoredBallIds.length;
+
+  let updatedTeams: Team[] | undefined;
+
+  if (isCoopMode && teams.length > 0 && currentPlayer.teamId !== undefined) {
+    updatedTeams = teams.map((t) => {
+      if (t.id === currentPlayer.teamId) {
+        return { ...t, score: t.score + scoreGained };
+      }
+      return { ...t };
+    });
+  }
 
   const updatedPlayers = players.map((p) => {
     if (p.id === currentPlayerId) {
@@ -39,6 +61,7 @@ export function calculateScoreAndUpdatePlayers(
     scoredBallIds,
     scoreGained,
     updatedPlayers,
+    updatedTeams,
   };
 }
 
@@ -70,8 +93,11 @@ export function assignGroupsOnFirstPocket(
   pocketedNonCue: number[],
   players: Player[],
   currentPlayerId: number,
+  playMode: PlayMode = 'pvp',
+  teams: Team[] = [],
 ): {
   updatedPlayers: Player[];
+  updatedTeams?: Team[];
   groupsAssigned: boolean;
   hintMessage: string | null;
 } {
@@ -85,7 +111,46 @@ export function assignGroupsOnFirstPocket(
     return { updatedPlayers: players, groupsAssigned: false, hintMessage: null };
   }
 
+  const isCoopMode = playMode === 'coop' || playMode === 'coop-online';
   const currentPlayer = players.find((p) => p.id === currentPlayerId)!;
+
+  if (isCoopMode && teams.length > 0) {
+    const currentTeamId = currentPlayer.teamId;
+    if (currentTeamId === undefined) {
+      return { updatedPlayers: players, groupsAssigned: false, hintMessage: null };
+    }
+
+    const currentTeam = teams.find((t) => t.id === currentTeamId);
+    const otherTeam = teams.find((t) => t.id !== currentTeamId);
+
+    if (currentTeam?.group || otherTeam?.group) {
+      return { updatedPlayers: players, updatedTeams: teams, groupsAssigned: true, hintMessage: null };
+    }
+
+    const team1Group: 'solid' | 'stripe' = ball.stripe ? 'stripe' : 'solid';
+    const team2Group: 'solid' | 'stripe' = team1Group === 'solid' ? 'stripe' : 'solid';
+
+    const updatedTeams = teams.map((t) => {
+      if (t.id === currentTeamId) return { ...t, group: team1Group };
+      return { ...t, group: team2Group };
+    });
+
+    const updatedPlayers = players.map((p) => {
+      const team = updatedTeams.find((t) => t.id === p.teamId);
+      return { ...p, group: team?.group };
+    });
+
+    const teamName = currentTeam?.name || '队伍';
+    const groupLabel = team1Group === 'solid' ? '全色球' : '半色球';
+
+    return {
+      updatedPlayers,
+      updatedTeams,
+      groupsAssigned: true,
+      hintMessage: `${teamName} 已分配：${groupLabel}`,
+    };
+  }
+
   const otherPlayer = players.find((p) => p.id !== currentPlayerId)!;
 
   if (currentPlayer.group || otherPlayer.group) {

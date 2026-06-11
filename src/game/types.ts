@@ -61,10 +61,19 @@ export interface Player {
   aiDifficulty?: 'easy' | 'hard';
   group?: 'solid' | 'stripe' | null;
   score: number;
+  teamId?: number;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  playerIds: number[];
+  group?: 'solid' | 'stripe' | null;
+  score: number;
 }
 
 export type GameMode = '8ball' | '9ball';
-export type PlayMode = 'pvp' | 'pve';
+export type PlayMode = 'pvp' | 'pve' | 'coop' | 'coop-online';
 export type GamePhase =
   | 'setup'
   | 'aiming'
@@ -81,12 +90,14 @@ export interface GameState {
   balls: Ball[];
   table: Table;
   currentPlayerId: number;
+  currentTeamId: number;
   players: Player[];
+  teams: Team[];
   currentShot: Shot | null;
   shotHistory: Shot[];
   foul: FoulType;
   foulMessage: string | null;
-  winner: Player | null;
+  winner: Player | Team | null;
   turnNumber: number;
   targetBallHint: string | null;
   replayRecording: boolean;
